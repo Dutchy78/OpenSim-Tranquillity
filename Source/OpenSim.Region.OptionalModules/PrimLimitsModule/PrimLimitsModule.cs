@@ -27,13 +27,14 @@
 
 using System.Reflection;
 using log4net;
+using Mono.Addins;
 using Nini.Config;
 using OpenMetaverse;
 using OpenSim.Framework;
 using OpenSim.Region.Framework.Interfaces;
 using OpenSim.Region.Framework.Scenes;
 
-namespace OpenSim.Region.OptionalModules
+namespace OpenSim.Region.OptionalModules.PrimLimits
 {
     /// <summary>
     /// Enables Prim limits for parcel.
@@ -41,6 +42,7 @@ namespace OpenSim.Region.OptionalModules
     /// <remarks>
     /// This module selectivly enables parcel prim limits.
     /// </remarks>
+    [Extension(Path = "/OpenSim/RegionModules", NodeName = "RegionModule", Id = "PrimLimitsModule")]
     public class PrimLimitsModule : INonSharedRegionModule
     {
         protected IDialogModule m_dialogModule;
@@ -48,6 +50,13 @@ namespace OpenSim.Region.OptionalModules
         private bool m_enabled;
 
         private Scene m_scene;
+
+        // New fields for prim limit enforcement
+        private bool m_enforcePrimLimits = false;
+        private bool m_enforceParcelLimits = false;
+        private int m_minimumParcelPrims = 0;
+        private int m_maximumParcelPrims = 0;
+
         public string Name { get { return "PrimLimitsModule"; } }
 
         public Type ReplaceableInterface { get { return null; } }
@@ -59,11 +68,44 @@ namespace OpenSim.Region.OptionalModules
 
             List<string> modules = new List<string>(permissionModules.Split(',').Select(m => m.Trim()));
 
-            if(!modules.Contains("PrimLimitsModule"))
+            if (!modules.Contains("PrimLimitsModule"))
                 return;
 
             m_log.DebugFormat("[PRIM LIMITS]: Initialized module");
+            LoadPrimLimits(config);
             m_enabled = true;
+        }
+
+        private void LoadPrimLimits(IConfigSource config)
+        {
+            string[] sections = new string[] { "Startup", "PrimLimits" };
+
+            // Enforce the limits on the region, when true a complete region will be checked for the amount of prims needed
+            m_enforcePrimLimits = Util.GetConfigVarFromSections<bool>(config,
+                    "EnforcePrimLimits", sections);
+
+            // Enforce the limits of a Parcel, use in combination with the Min and Max Parcel Prims
+            m_enforceParcelLimits = Util.GetConfigVarFromSections<bool>(config,
+                    "EnforceParcelLimits", sections);
+
+            // Minimal amount of prims needed on the parcel
+            m_minimumParcelPrims = Util.GetConfigVarFromSections<int>(config,
+                "MinimumParcelPrims", sections);
+
+            // Maximum amount of prims allows on a parcel without the prim multiplier
+            m_maximumParcelPrims = Util.GetConfigVarFromSections<int>(config,
+                "MaximumParcelPrims", sections);
+
+            m_log.DebugFormat("[PRIM LIMITS]: Loaded config: EnforcePrimLimits={0}, EnforceParcelLimits={1}, MinParcelPrims={2}, MaxParcelPrims={3}",
+                m_enforcePrimLimits, m_enforceParcelLimits, m_minimumParcelPrims, m_maximumParcelPrims);
+        }
+
+        private int GetTotalRegionPrimCount()
+        {
+            int total = 0;
+            foreach (ILandObject land in m_scene.LandChannel.AllParcels())
+                total += land.PrimCounts.Total;
+            return total;
         }
 
         public void Close()
@@ -135,7 +177,7 @@ namespace OpenSim.Region.OptionalModules
             float newX = newPoint.X;
             float newY = newPoint.Y;
             if (newX < -1.0f || newX > (m_scene.RegionInfo.RegionSizeX + 1.0f) ||
-                newY < -1.0f || newY > (m_scene.RegionInfo.RegionSizeY + 1.0f) )
+                newY < -1.0f || newY > (m_scene.RegionInfo.RegionSizeY + 1.0f))
                 return true;
 
             if (sog == null)
@@ -146,11 +188,11 @@ namespace OpenSim.Region.OptionalModules
             if (newParcel == null)
                 return true;
 
-            if(!enteringRegion)
+            if (!enteringRegion)
             {
                 Vector3 oldPoint = sog.AbsolutePosition;
                 ILandObject oldParcel = m_scene.LandChannel.GetLandObject(oldPoint.X, oldPoint.Y);
-                if(oldParcel != null && oldParcel.Equals(newParcel))
+                if (oldParcel != null && oldParcel.Equals(newParcel))
                     return true;
             }
 
@@ -162,7 +204,7 @@ namespace OpenSim.Region.OptionalModules
 
             if (response != null)
             {
-                if(m_dialogModule != null)
+                if (m_dialogModule != null)
                     m_dialogModule.SendAlertToUser(sog.OwnerID, response);
                 return false;
             }
@@ -193,6 +235,34 @@ namespace OpenSim.Region.OptionalModules
         {
             string response = null;
 
+            // Enforce region-wide prim limits
+            if (m_enforcePrimLimits)
+            {
+                int totalRegionPrims = GetTotalRegionPrimCount();
+                int regionMaxPrims = m_scene.RegionInfo.ObjectCapacity;
+
+                if ((objectCount + totalRegionPrims) > regionMaxPrims)
+                {
+                    return "Unable to rez object: region prim limit exceeded.";
+                }
+            }
+
+            // Enforce per-parcel prim limits
+            if (m_enforceParcelLimits && lo != null)
+            {
+                int parcelPrimCount = lo.PrimCounts.Total;
+                int newTotal = parcelPrimCount + objectCount;
+
+                if (m_maximumParcelPrims > 0 && newTotal > m_maximumParcelPrims)
+                {
+                    return $"Unable to rez object: parcel prim limit of {m_maximumParcelPrims} exceeded.";
+                }
+                if (m_minimumParcelPrims > 0 && newTotal < m_minimumParcelPrims)
+                {
+                    return $"Unable to rez object: parcel must have at least {m_minimumParcelPrims} prims.";
+                }
+            }
+
             int OwnedParcelsCapacity = lo.GetSimulatorMaxPrimCount();
             if ((objectCount + lo.PrimCounts.Simulator) > OwnedParcelsCapacity)
             {
@@ -215,7 +285,7 @@ namespace OpenSim.Region.OptionalModules
                             if (!mgrs.Contains(ownerID))
                             {
                                 // caller is not an Estate Manager
-                                if ((lo.PrimCounts.Users[ownerID] + objectCount) >  maxPrimsPerUser)
+                                if ((lo.PrimCounts.Users[ownerID] + objectCount) > maxPrimsPerUser)
                                 {
                                     response = "Unable to rez object because you have reached your limit";
                                 }
