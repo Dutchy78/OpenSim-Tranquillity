@@ -186,6 +186,35 @@ public class AppearanceImportPlannerTests
     }
 
     [Fact]
+    public void CsvWithNamesImportsOneAvatarPerLine()
+    {
+        var csv = "first,last,values\n# comment\nLoad,Tester01," + SampleBlob + "\n\"Load Tester02\"," + SampleBlob + "\r\n";
+        var doc = ImportDocumentReader.ParseCsv(csv, "whatever");
+
+        Assert.Equal(2, doc.Avatars.Count);
+        Assert.Equal("Tester02", doc.Avatars[1].LastName);
+        foreach (var a in doc.Avatars)
+        {
+            var plan = AppearancePlanner.Plan(a, doc, Catalog);
+            Assert.True(plan.Ok, string.Join("; ", plan.Errors));
+            Assert.Equal(SampleBlob.Split(',').Select(byte.Parse), plan.VisualParams);
+        }
+    }
+
+    [Fact]
+    public void CsvWithOnlyValuesIsNamedByTheFile()
+    {
+        var doc = ImportDocumentReader.ParseCsv(SampleBlob + "\n", "Load_Tester03");
+        var a = Assert.Single(doc.Avatars);
+        Assert.Equal("Load", a.FirstName);
+        Assert.Equal("Tester03", a.LastName);
+        Assert.True(AppearancePlanner.Plan(a, doc, Catalog).Ok);
+
+        Assert.Throws<FormatException>(() => ImportDocumentReader.ParseCsv(SampleBlob, "notaname"));
+        Assert.Throws<FormatException>(() => ImportDocumentReader.ParseCsv(SampleBlob + "\n" + SampleBlob, "Load_Tester03"));
+    }
+
+    [Fact]
     public void VisualParamsAreTheViewersEncodingOfTheWornValues()
     {
         var plan = AppearancePlanner.Plan(Spec(new WearableSpec { Type = "shape", Params = new() { ["male"] = 1, ["Height"] = 1.5 } }), null, Catalog);

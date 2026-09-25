@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -183,7 +184,80 @@ public static class ImportDocumentReader
         }
     }
 
-    public static ImportDocument Load(string path) => Parse(File.ReadAllText(path));
+    /// <summary>A .csv file is read with <see cref="ParseCsv"/>, anything else as a JSON document.</summary>
+    public static ImportDocument Load(string path)
+        => string.Equals(Path.GetExtension(path), ".csv", StringComparison.OrdinalIgnoreCase)
+            ? ParseCsv(File.ReadAllText(path), Path.GetFileNameWithoutExtension(path))
+            : Parse(File.ReadAllText(path));
+
+    /// <summary>
+    /// A VisualParams CSV: one avatar per non-empty line, in either of two layouts.
+    /// <list type="bullet">
+    /// <item><c>First,Last,31,20,69,…</c> — the name in the first two fields, the VisualParams bytes after it.</item>
+    /// <item><c>31,20,69,…</c> — bytes only; the avatar is named by the file ("First_Last.csv", "First Last.csv"
+    /// or "First.Last.csv"). Such a file must hold one line.</item>
+    /// </list>
+    /// A header line (a first field that is neither a number nor followed by numbers) and lines starting with '#'
+    /// are skipped. The accounts are expected to exist; the byte count is checked by the planner (253, or 218 for
+    /// a pre-physics avatar).
+    /// </summary>
+    /// <exception cref="FormatException">A line has no usable name, or a bytes-only file has more than one line.</exception>
+    public static ImportDocument ParseCsv(string text, string fileName)
+    {
+        var doc = new ImportDocument { Version = 1 };
+        var lines = (text ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        var bytesOnly = new List<string>();
+        for (var n = 0; n < lines.Length; n++)
+        {
+            var line = lines[n].Trim().TrimStart('\uFEFF');
+            if (line.Length == 0 || line.StartsWith('#')) continue;
+            var fields = line.Split(new[] { ',', ';', '\t' }).Select(f => f.Trim().Trim('"').Trim()).ToList();
+
+            if (IsNumber(fields[0]))
+            {
+                bytesOnly.Add(string.Join(",", fields.Where(f => f.Length > 0)));
+                continue;
+            }
+            if (fields.Count >= 3 && !IsNumber(fields[1]) && IsNumber(fields[2]))
+            {
+                doc.Avatars.Add(Avatar(fields[0], fields[1], string.Join(",", fields.Skip(2).Where(f => f.Length > 0)), n + 1));
+                continue;
+            }
+            if (fields.Count >= 2 && IsNumber(fields[1]) && fields[0].Contains(' '))
+            {
+                // "First Last",31,20,…
+                var parts = fields[0].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length == 2)
+                {
+                    doc.Avatars.Add(Avatar(parts[0], parts[1], string.Join(",", fields.Skip(1).Where(f => f.Length > 0)), n + 1));
+                    continue;
+                }
+            }
+            if (doc.Avatars.Count == 0 && bytesOnly.Count == 0) continue;   // a header line
+            throw new FormatException($"line {n + 1}: expected First,Last,<values> or only values");
+        }
+
+        if (bytesOnly.Count > 0)
+        {
+            if (bytesOnly.Count > 1 || doc.Avatars.Count > 0)
+                throw new FormatException("a file whose lines hold only values must hold exactly one line; put First,Last in front of each line to import several avatars from one file");
+            var name = (fileName ?? string.Empty).Split(new[] { '_', ' ', '.' }, StringSplitOptions.RemoveEmptyEntries);
+            if (name.Length != 2)
+                throw new FormatException($"the file holds only values, so the avatar is named by the file, but '{fileName}' is not 'First_Last'");
+            doc.Avatars.Add(Avatar(name[0], name[1], bytesOnly[0], 1));
+        }
+        return doc;
+    }
+
+    private static AvatarSpec Avatar(string first, string last, string values, int line) => new()
+    {
+        FirstName = first,
+        LastName = last,
+        VisualParams = JsonDocument.Parse(JsonSerializer.Serialize(values)).RootElement.Clone(),
+    };
+
+    private static bool IsNumber(string s)
+        => double.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _);
 
     public static string Serialize(ImportDocument document) => JsonSerializer.Serialize(document, Options);
 

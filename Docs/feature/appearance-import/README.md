@@ -33,6 +33,20 @@ is written last, so an avatar that fails part-way keeps its previous look.
 A logged-in avatar is skipped (its viewer holds its own outfit and would write it back); log it out first, or use
 `--force` and make it relog.
 
+## VisualParams CSV
+
+For avatars whose accounts already exist, a CSV of VisualParams rows is enough — `appearance import` reads `.csv`
+files directly (and a directory import picks up `.json` and `.csv` files):
+
+```
+First,Last,31,20,69,0,111,…      one avatar per line (a "First Last" first field works too)
+31,20,69,0,111,…                 values only: the file names the avatar, e.g. Load_Tester01.csv
+```
+
+Each row must hold 253 values (or 218 for a pre-physics avatar). A header line and `#` comment lines are skipped.
+Every avatar gets the four body parts generated from its values, in `Clothing/Imported Outfit`; no clothing is
+created, and a missing account is an error (use `--create-accounts` only with a JSON document that gives passwords).
+
 ## Document
 
 See `sample.json`. Top level: `{ "paramScale", "defaultPassword", "avatars": [...] }`, a bare array of avatars, or a

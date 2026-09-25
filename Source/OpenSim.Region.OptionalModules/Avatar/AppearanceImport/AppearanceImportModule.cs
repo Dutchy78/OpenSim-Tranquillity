@@ -81,7 +81,7 @@ public class AppearanceImportModule : ISharedRegionModule
         scene.AddCommand(
             "Users", this, "appearance import",
             "appearance import <file-or-directory> [--dry-run] [--create-accounts] [--force]",
-            "Give accounts the appearance described in a JSON document (or every .json file in a directory).",
+            "Give accounts the appearance in a JSON document or a VisualParams CSV (or every .json/.csv file in a directory).",
             "Stores the wearable assets and uploads image files as textures, creates the inventory items in "
             + "Clothing/<outfitName>, replaces the Current Outfit Folder links and writes the avatar's appearance. "
             + "The avatar bakes at its next login.\n"
@@ -153,10 +153,13 @@ public class AppearanceImportModule : ISharedRegionModule
 
         var path = Path.GetFullPath(args[0]);
         List<string> files;
-        if (Directory.Exists(path)) files = Directory.GetFiles(path, "*.json").OrderBy(f => f, StringComparer.Ordinal).ToList();
+        if (Directory.Exists(path))
+            files = Directory.GetFiles(path)
+                .Where(f => Path.GetExtension(f).ToLowerInvariant() is ".json" or ".csv")
+                .OrderBy(f => f, StringComparer.Ordinal).ToList();
         else if (File.Exists(path)) files = new List<string> { path };
         else { MainConsole.Instance.Output("{0} is neither a file nor a directory.", path); return; }
-        if (files.Count == 0) { MainConsole.Instance.Output("No .json files in {0}.", path); return; }
+        if (files.Count == 0) { MainConsole.Instance.Output("No .json or .csv files in {0}.", path); return; }
 
         AppearanceImporter importer;
         try { importer = new AppearanceImporter(ServicesOf(scene), ParamCatalog.Embedded); }
