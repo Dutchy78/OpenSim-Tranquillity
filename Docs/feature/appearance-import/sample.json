@@ -1,0 +1,78 @@
+{
+  // Comments and trailing commas are allowed.
+  "version": 1,
+  "paramScale": "slider",            // numbers in "params" are 0..100 like the viewer's appearance sliders
+  "defaultPassword": "change-me",    // used for accounts created by this import that do not set their own
+
+  "avatars": [
+    {
+      "firstName": "Load",
+      "lastName": "Tester01",
+      "account": { "create": true, "email": "" },
+      "outfitName": "Load Test Look",
+
+      "wearables": [
+        {
+          "type": "shape",
+          "name": "Tester01 Shape",
+          "params": {
+            "male": 0,                 // by name
+            "Height": 62,              // name and editor label are the same here
+            "Body Thickness": 40,      // by editor label (param 34 "Thickness")
+            "Breast Size": 55,
+            "682": 50                  // by id (Head Size)
+          }
+        },
+        {
+          "type": "skin",
+          "name": "Tester01 Skin",
+          "params": { "Pigment": 35, "Rosy Complexion": 20, "Freckles": 0 },
+          "textures": {
+            // A UUID wears an existing texture asset; a path uploads an image (converted to JPEG2000).
+            // Leave out any slot you want to paint by hand later.
+            // "head_bodypaint":  "textures/tester01_head.png",
+            // "upper_bodypaint": "textures/tester01_upper.png",
+            // "lower_bodypaint": "textures/tester01_lower.png"
+          }
+        },
+        {
+          "type": "hair",
+          "params": { "Blonde Hair": 70, "Red Hair": 10, "Hair Front": 50, "Hair Sides": 50, "Hair Back": 60 }
+        },
+        {
+          "type": "eyes",
+          "params": { "Eye Color": 45, "Eye Lightness": 30 }
+        },
+        {
+          "type": "shirt",
+          "name": "Blue T-shirt",
+          "params": { "Sleeve Length": 20, "shirt_red": 10, "shirt_green": 30, "shirt_blue": 90 }
+        },
+        {
+          "type": "pants",
+          "name": "Jeans",
+          "params": { "pants_red": 20, "pants_green": 25, "pants_blue": 60 }
+        }
+      ],
+
+      // Attachments wear an object asset that already exists on the grid (mesh hair, bodies, HUDs...).
+      "attachments": [
+        // { "point": "Skull", "assetId": "00000000-0000-0000-0000-000000000000", "name": "Mesh hair" }
+      ]
+    },
+    {
+      "firstName": "Load",
+      "lastName": "Tester02",
+      "account": { "create": true, "password": "another-password" },
+      "paramScale": "value",           // this avatar gives raw weights instead of slider values
+      "wearables": [
+        { "type": "shape", "params": { "male": 1, "Height": 0.4, "Shoulders": 0.6 } },
+        { "type": "skin",  "params": { "Pigment": 0.6 } },
+        // Wear an existing wearable asset unchanged:
+        // { "type": "hair", "assetId": "d342e6c0-b9d2-11dc-95ff-0800200c9a66" },
+        { "type": "eyes" }
+        // No hair given: the library default hair is worn.
+      ]
+    }
+  ]
+}
