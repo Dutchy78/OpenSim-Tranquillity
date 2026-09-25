@@ -324,9 +324,16 @@ public class AppearanceImporterTests
         Assert.Equal(shirts[1].AssetID, app.Wearables[(int)WearableType.Shirt][1].ItemID);
         foreach (var t in new[] { WearableType.Shape, WearableType.Skin, WearableType.Hair, WearableType.Eyes })
             Assert.Equal(1, app.Wearables[(int)t].Count);
+        // AvatarData stores an attachment as its inventory item id only ("_ap_<point>" = item id; the asset id is not
+        // persisted, IAvatarService.cs AvatarData(AvatarAppearance)). The item is what the avatar rezzes at login,
+        // so it must be the one in the outfit folder, pointing at the object asset.
         var att = Assert.Single(app.GetAttachments());
         Assert.Equal((int)AttachmentPoint.Skull, att.AttachPoint);
-        Assert.Equal(hair, att.AssetID);
+        var attachedItem = rig.Inventory.GetItem(pid, att.ItemID);
+        Assert.NotNull(attachedItem);
+        Assert.Equal(hair, attachedItem.AssetID);
+        Assert.Equal((int)InventoryType.Object, attachedItem.InvType);
+        Assert.Equal(outfit.ID, attachedItem.Folder);
     }
 
     [Fact]
