@@ -10,6 +10,7 @@ using OpenSim.Services.Connectors;
 using OpenSim.Services.Interfaces;
 using OpenSimNGC.Appearance.Baking;
 using GridRegion = OpenSim.Services.Interfaces.GridRegion;
+using PermissionMask = OpenSim.Framework.PermissionMask;
 
 namespace OpenSim.Region.OptionalModules.Avatar.AppearanceImport;
 
