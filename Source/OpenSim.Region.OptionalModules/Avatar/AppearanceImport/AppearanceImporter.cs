@@ -244,7 +244,7 @@ public sealed class AppearanceImporter
             ? new HashSet<UUID>()
             : oldLinks.Where(i => i.InvType != (int)InventoryType.Wearable).Select(i => i.AssetID).ToHashSet();
 
-        var outfitName = AppearancePlanner.CleanLine(spec.OutfitName, AppearancePlanner.DefaultOutfitName);
+        var outfitName = AppearancePlanner.CleanLine(spec.OutfitName, AppearancePlanner.DefaultOutfitName(spec));
         var outfit = ReplaceOutfitFolder(pid, clothing, outfitName, keptTargets, result);
         if (outfit is null) return;
 
@@ -390,14 +390,15 @@ public sealed class AppearanceImporter
         // appearance in one call. It is gated by [UserAccountService] AllowCreateUser on Robust.
         if (m_services.Accounts is UserAccountServicesConnector robust)
         {
-            var created = robust.CreateUser(spec.FirstName, spec.LastName, password, spec.Account?.Email ?? string.Empty, m_services.ScopeID);
+            var wantedId = UUID.TryParse(spec.Uuid ?? "", out var w) ? w : UUID.Zero;
+            var created = robust.CreateUser(spec.FirstName, spec.LastName, password, spec.Account?.Email ?? string.Empty, m_services.ScopeID, wantedId);
             if (created is null)
             {
                 Fail(result, "Robust refused to create the account; set AllowCreateUser = true in Robust's [UserAccountService] section, or create it there with 'create user'");
                 return null;
             }
-            if (!string.IsNullOrWhiteSpace(spec.Uuid))
-                result.Messages.Add($"warning: Robust chooses the id of accounts it creates; the uuid in the document was not used");
+            if (!wantedId.IsZero() && created.PrincipalID != wantedId)
+                result.Messages.Add($"warning: Robust created the account as {created.PrincipalID}, not the uuid {wantedId} the document gave");
             result.AccountCreated = true;
             result.Messages.Add($"created account {created.PrincipalID} on Robust");
             return created;

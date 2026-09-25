@@ -241,12 +241,26 @@ public static class ImportDocumentReader
         {
             if (bytesOnly.Count > 1 || doc.Avatars.Count > 0)
                 throw new FormatException("a file whose lines hold only values must hold exactly one line; put First,Last in front of each line to import several avatars from one file");
-            var name = (fileName ?? string.Empty).Split(new[] { '_', ' ', '.' }, StringSplitOptions.RemoveEmptyEntries);
-            if (name.Length != 2)
-                throw new FormatException($"the file holds only values, so the avatar is named by the file, but '{fileName}' is not 'First_Last'");
-            doc.Avatars.Add(Avatar(name[0], name[1], bytesOnly[0], 1));
+            var name = AvatarNameFromFileName(fileName);
+            if (name is null)
+                throw new FormatException($"the file holds only values, so the avatar is named by the file, but '{fileName}' is not 'First Last', 'First_Last' or '<prefix> - First Last'");
+            doc.Avatars.Add(Avatar(name.Value.First, name.Value.Last, bytesOnly[0], 1));
         }
         return doc;
+    }
+
+    /// <summary>
+    /// The avatar a values-only CSV is named after, from its file name (without extension): "First Last",
+    /// "First_Last", "First.Last", or "&lt;prefix&gt; - First Last" (e.g. "data - 000heart000 Resident"), where the
+    /// name is the text after the last " - ". Null when that text is not exactly two names.
+    /// </summary>
+    public static (string First, string Last)? AvatarNameFromFileName(string fileName)
+    {
+        var text = fileName ?? string.Empty;
+        var dash = text.LastIndexOf(" - ", StringComparison.Ordinal);
+        if (dash >= 0) text = text[(dash + 3)..];
+        var parts = text.Split(new[] { '_', ' ', '.' }, StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 2 ? (parts[0], parts[1]) : null;
     }
 
     private static AvatarSpec Avatar(string first, string last, string values, int line) => new()

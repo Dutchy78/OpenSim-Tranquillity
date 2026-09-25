@@ -253,7 +253,6 @@ public class AppearanceImportModule : ISharedRegionModule
         {
             FirstName = account.FirstName,
             LastName = account.LastName,
-            OutfitName = AppearancePlanner.DefaultOutfitName,
         };
 
         var wearables = appearance.Wearables ?? Array.Empty<AvatarWearable>();

@@ -120,8 +120,12 @@ public sealed class FakeRobustAccounts : OpenSim.Services.Connectors.UserAccount
         => Accounts.Values.FirstOrDefault(a => a.FirstName == firstName && a.LastName == lastName);
     public override bool StoreUserAccount(UserAccount data) => Accounts.ContainsKey(data.PrincipalID);
     public override UserAccount CreateUser(string first, string last, string password, string email, UUID scopeID)
+        => CreateUser(first, last, password, email, scopeID, UUID.Zero);
+
+    /// <summary>Robust's createuser uses PrincipalID when the request carries one.</summary>
+    public override UserAccount CreateUser(string first, string last, string password, string email, UUID scopeID, UUID principalID)
     {
-        var a = new UserAccount(scopeID, UUID.Random(), first, last, email);
+        var a = new UserAccount(scopeID, principalID.IsZero() ? UUID.Random() : principalID, first, last, email);
         Accounts[a.PrincipalID] = a;
         Passwords[a.PrincipalID] = password;
         m_inventory.CreateUserInventory(a.PrincipalID);

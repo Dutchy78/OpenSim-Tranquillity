@@ -361,6 +361,30 @@ public class UserAccountServicesConnector : BaseServiceConnector, IUserAccountSe
         return SendAndGetReply(sendData);
     }
 
+    /// <summary>
+    /// As <see cref="CreateUser(string, string, string, string, UUID)"/>, with the principal id the account should get.
+    /// Robust's <c>createuser</c> handler reads <c>PrincipalID</c> and uses it when present
+    /// (UserAccountServerPostHandler.CreateUser); <see cref="UUID.Zero"/> leaves the choice to Robust.
+    /// </summary>
+    public virtual UserAccount CreateUser(string first, string last, string password, string email, UUID scopeID, UUID principalID)
+    {
+        Dictionary<string, object> sendData = new Dictionary<string, object>();
+        sendData["VERSIONMIN"] = ProtocolVersions.ClientProtocolVersionMin.ToString();
+        sendData["VERSIONMAX"] = ProtocolVersions.ClientProtocolVersionMax.ToString();
+        sendData["METHOD"] = "createuser";
+
+        sendData["FirstName"] = first;
+        sendData["LastName"] = last;
+        sendData["Password"] = password;
+        if (!string.IsNullOrEmpty(email))
+            sendData["Email"] = email;
+        sendData["ScopeID"] = scopeID.ToString();
+        if (!principalID.IsZero())
+            sendData["PrincipalID"] = principalID.ToString();
+
+        return SendAndGetReply(sendData);
+    }
+
     private UserAccount SendAndGetReply(Dictionary<string, object> sendData)
     {
         string reply = string.Empty;

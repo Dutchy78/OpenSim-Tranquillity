@@ -118,7 +118,11 @@ public class AppearanceImportPlannerTests
 
         Assert.True(plan.Ok, string.Join("; ", plan.Errors));
         Assert.Empty(plan.MissingBodyParts);   // generated from the blob, not library defaults
-        Assert.Equal(new[] { WearableKind.Shape, WearableKind.Skin, WearableKind.Hair, WearableKind.Eyes }, plan.Wearables.Select(w => w.Kind));
+        Assert.Equal(new[] { WearableKind.Shape, WearableKind.Skin, WearableKind.Hair, WearableKind.Eyes, WearableKind.Universal }, plan.Wearables.Select(w => w.Kind));
+        Assert.Equal(new[] { "a b Shape", "a b Skin", "a b Hair", "a b Eyes", "a b Ears" }, plan.Wearables.Select(w => w.Name));
+        var ears = plan.Wearables.Last();
+        Assert.Empty(ears.Params);     // the universal type has no tweakable parameters; ear sliders are on the Shape
+        Assert.Empty(ears.Textures);
 
         // every byte a generated wearable carries survives: wearable text → parser → encoder gives the blob back
         var blob = SampleBlob.Split(',').Select(byte.Parse).ToArray();
@@ -212,6 +216,49 @@ public class AppearanceImportPlannerTests
 
         Assert.Throws<FormatException>(() => ImportDocumentReader.ParseCsv(SampleBlob, "notaname"));
         Assert.Throws<FormatException>(() => ImportDocumentReader.ParseCsv(SampleBlob + "\n" + SampleBlob, "Load_Tester03"));
+    }
+
+    [Fact]
+    public void AListedUniversalReplacesTheGeneratedEarsLayer()
+    {
+        var spec = new AvatarSpec
+        {
+            FirstName = "a", LastName = "b", VisualParams = Json("\"" + SampleBlob + "\""),
+            Wearables = new() { new WearableSpec { Type = "universal", Name = "My tattoo" } },
+        };
+        var plan = AppearancePlanner.Plan(spec, null, Catalog);
+        Assert.True(plan.Ok, string.Join("; ", plan.Errors));
+        var universal = Assert.Single(plan.Wearables, w => w.Kind == WearableKind.Universal);
+        Assert.Equal("My tattoo", universal.Name);
+    }
+
+    [Fact]
+    public void WithoutABlobNoEarsLayerIsAdded()
+    {
+        var plan = AppearancePlanner.Plan(Spec(new WearableSpec { Type = "shape" }), null, Catalog);
+        Assert.DoesNotContain(plan.Wearables, w => w.Kind == WearableKind.Universal);
+        Assert.Equal("Load Tester Shape", plan.Wearables[0].Name);
+    }
+
+    [Theory]
+    [InlineData("Load_Tester01", "Load", "Tester01")]
+    [InlineData("Load Tester01", "Load", "Tester01")]
+    [InlineData("Load.Tester01", "Load", "Tester01")]
+    [InlineData("data - 000heart000 Resident", "000heart000", "Resident")]
+    [InlineData("export - 2026 - Load Tester01", "Load", "Tester01")]
+    public void CsvFileNamesNameTheAvatar(string fileName, string first, string last)
+    {
+        var doc = ImportDocumentReader.ParseCsv(SampleBlob, fileName);
+        var a = Assert.Single(doc.Avatars);
+        Assert.Equal(first, a.FirstName);
+        Assert.Equal(last, a.LastName);
+    }
+
+    [Fact]
+    public void AFileNameThatIsNotTwoNamesIsRejected()
+    {
+        Assert.Null(ImportDocumentReader.AvatarNameFromFileName("data - justone"));
+        Assert.Null(ImportDocumentReader.AvatarNameFromFileName("one two three"));
     }
 
     [Fact]
@@ -334,6 +381,20 @@ public class AppearanceImporterTests
         Assert.Equal(hair, attachedItem.AssetID);
         Assert.Equal((int)InventoryType.Object, attachedItem.InvType);
         Assert.Equal(outfit.ID, attachedItem.Folder);
+    }
+
+    [Fact]
+    public void WithoutOutfitNameTheFolderIsTheAvatarsName()
+    {
+        var rig = new Rig();
+        var spec = FullSpec();
+        spec.OutfitName = null;
+
+        Assert.True(rig.Import(spec).Success);
+
+        var pid = rig.Account("Load", "Tester01").PrincipalID;
+        var clothing = rig.Inventory.GetFolderForType(pid, FolderType.Clothing);
+        Assert.Single(rig.Inventory.GetFolderContent(pid, clothing.ID).Folders, f => f.Name == "Load Tester01");
     }
 
     [Fact]
@@ -463,7 +524,7 @@ public class AppearanceImporterGridTests
         }, ParamCatalog.Embedded);
         var spec = new AvatarSpec
         {
-            FirstName = "Grid", LastName = "Tester", Account = new AccountSpec { Create = true, Password = "pw" },
+            FirstName = "Grid", LastName = "Tester", Uuid = "0b3c0a3e-5d1f-4c27-9a51-7e2f3d8c1a01", Account = new AccountSpec { Create = true, Password = "pw" },
             Wearables = new() { new WearableSpec { Type = "shape" }, new WearableSpec { Type = "skin" }, new WearableSpec { Type = "hair" }, new WearableSpec { Type = "eyes" } },
         };
 
@@ -471,6 +532,7 @@ public class AppearanceImporterGridTests
 
         Assert.True(result.Success, string.Join("\n", result.Messages));
         var account = Assert.Single(robust.Accounts.Values);
+        Assert.Equal(new UUID("0b3c0a3e-5d1f-4c27-9a51-7e2f3d8c1a01"), account.PrincipalID);   // the document's uuid, sent as PrincipalID
         Assert.Equal("pw", robust.Passwords[account.PrincipalID]);
         Assert.Equal(account.PrincipalID, result.PrincipalID);
         Assert.Equal(4, avatars.GetAppearance(account.PrincipalID).Wearables.Take(4).Sum(w => w.Count));

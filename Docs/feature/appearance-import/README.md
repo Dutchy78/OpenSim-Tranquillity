@@ -40,12 +40,15 @@ files directly (and a directory import picks up `.json` and `.csv` files):
 
 ```
 First,Last,31,20,69,0,111,…      one avatar per line (a "First Last" first field works too)
-31,20,69,0,111,…                 values only: the file names the avatar, e.g. Load_Tester01.csv
+31,20,69,0,111,…                 values only: the file names the avatar
 ```
 
+A values-only file is named after its avatar: `First Last.csv`, `First_Last.csv`, `First.Last.csv`, or
+`<prefix> - First Last.csv` (e.g. `data - 000heart000 Resident.csv`), where the name is the text after the last ` - `.
+
 Each row must hold 253 values (or 218 for a pre-physics avatar). A header line and `#` comment lines are skipped.
-Every avatar gets the four body parts generated from its values, in `Clothing/Imported Outfit`; no clothing is
-created, and a missing account is an error (use `--create-accounts` only with a JSON document that gives passwords).
+Every avatar gets the four body parts and an Ears layer generated from its values (see `visualParams` below), in
+`Clothing/<First> <Last>`; no other clothing is created, and a missing account is an error (use `--create-accounts` only with a JSON document that gives passwords).
 
 ## Document
 
@@ -57,7 +60,7 @@ single avatar object. Comments and trailing commas are allowed.
   "firstName": "Load", "lastName": "Tester01",
   "uuid": "…",                           // optional, used only when the account is created
   "account": { "create": true, "password": "…", "email": "" },
-  "outfitName": "Load Test Look",        // default "Imported Outfit"
+  "outfitName": "Load Test Look",        // default "<First> <Last>"
   "paramScale": "slider",                // value (default) | slider (0–100) | byte (0–255)
   "replaceOutfit": true,                 // false keeps existing attachments
   "visualParams": "31,20,69,0,111,…",    // optional: a whole-body VisualParams blob (253 bytes)
@@ -79,8 +82,14 @@ single avatar object. Comments and trailing commas are allowed.
   so the old values are an exact prefix and the additions take their defaults. Any other length is rejected, because
   the bytes could not be matched to parameters. The bytes become the shape, skin, hair and eyes (generated when not listed, instead of library defaults)
   and the parameters of the topmost listed wearable of each other type (clothing and physics are never invented).
+  A Universal layer named `<First> <Last> Ears` is generated as well, unless the document lists a universal wearable:
+  on the avatars this data comes from, the ear textures are painted on a Universal layer. It carries no visual
+  parameters (the universal type has no tweakable ones in avatar_lad.xml; the ear sliders belong to the Shape) and no
+  textures until you add them.
   A wearable's own `params` win over the blob, and the stored VisualParams are the blob itself apart from those.
   Byte values are decoded to the middle of their step, so the viewer re-encodes them to the same byte.
+* **Names** — generated wearables are called `<First> <Last> Shape`, `… Skin`, `… Hair`, `… Eyes` (and `… Ears`);
+  a wearable's own `name` overrides that. `appearance export` leaves `outfitName` out, so a re-import uses the default.
 * **params** — key by avatar_lad.xml id, name or viewer editor label (`PARAMS.md`, or `appearance params <type>`).
   Values outside the range are clamped (with a warning); a parameter that belongs to another wearable type is ignored
   (with a warning). Parameters you leave out take the avatar_lad.xml default.
@@ -118,7 +127,7 @@ a default outfit in one step, which the import then replaces). Robust must allow
     AllowCreateUser = true
 ```
 
-Robust chooses the id of accounts created this way, so a `uuid` in the document is ignored there. If you would rather
+A `uuid` in the document is sent to Robust as `PrincipalID`, which its `createuser` handler honours. If you would rather
 not open that up, create the accounts on the Robust console (`create user`) and import without `account.create`.
 On a standalone the importer creates the account locally, the way RemoteAdmin's `admin_create_user` does, and `uuid` is honoured.
 

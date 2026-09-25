@@ -176,7 +176,23 @@ public sealed class ParamCatalog
 /// </summary>
 public static class AppearancePlanner
 {
-    public const string DefaultOutfitName = "Imported Outfit";
+    /// <summary>The outfit folder under Clothing when the document names none: the avatar's own name.</summary>
+    public static string DefaultOutfitName(AvatarSpec spec) => CleanLine($"{spec?.FirstName} {spec?.LastName}".Trim(), "Imported Outfit");
+
+    /// <summary>The name of a generated wearable: "&lt;First&gt; &lt;Last&gt; &lt;Type&gt;", e.g. "Load Tester01 Shape".</summary>
+    public static string DefaultWearableName(AvatarSpec spec, WearableKind kind)
+    {
+        var type = WearableKinds.TypeName(kind);
+        type = type.Length == 0 ? "Wearable" : char.ToUpperInvariant(type[0]) + type[1..];
+        return $"{spec?.FirstName} {spec?.LastName} {type}".Trim();
+    }
+
+    /// <summary>
+    /// The name of the Universal layer generated with a VisualParams blob. On the avatars this data comes from, the ear
+    /// textures are painted on a Universal layer; the layer itself carries no visual parameters (the universal type has
+    /// no tweakable ones in avatar_lad.xml, and the ear sliders belong to the Shape).
+    /// </summary>
+    public const string EarsLayerSuffix = "Ears";
 
     /// <summary><see cref="OpenSim.Framework.AvatarWearable"/> holds at most this many items of one type.</summary>
     public const int MaxPerType = 5;
@@ -383,6 +399,14 @@ public static class AppearancePlanner
             foreach (var bp in BodyParts)
                 if (!wearables.Any(w => w is not null && ParseKind(w.Type) == bp))
                     wearables.Add(new WearableSpec { Type = WearableKinds.TypeName(bp) });
+
+            // …and the Universal layer those avatars carry their ear textures on, unless the document lists one.
+            if (!wearables.Any(w => w is not null && ParseKind(w.Type) == WearableKind.Universal))
+                wearables.Add(new WearableSpec
+                {
+                    Type = WearableKinds.TypeName(WearableKind.Universal),
+                    Name = $"{spec.FirstName} {spec.LastName} {EarsLayerSuffix}".Trim(),
+                });
         }
 
         // The blob's values for a type belong to the topmost (last listed) wearable of that type — the one the
@@ -436,7 +460,7 @@ public static class AppearancePlanner
 
     private static ComposedWearable ComposeWearable(WearableSpec w, WearableKind kind, ParamScale avatarScale, ParamCatalog catalog, string where, AvatarPlan plan, AvatarSpec spec, IReadOnlyDictionary<int, byte> blob)
     {
-        var name = CleanLine(w.Name, $"{spec.FirstName} {spec.LastName} {WearableKinds.TypeName(kind)}".Trim());
+        var name = CleanLine(w.Name, DefaultWearableName(spec, kind));
         var description = CleanLine(w.Description, "");
         var hasContent = (w.Params?.Count ?? 0) > 0 || (w.Textures?.Count ?? 0) > 0;
 
