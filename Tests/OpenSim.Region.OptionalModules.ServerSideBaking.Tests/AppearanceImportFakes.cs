@@ -1,6 +1,7 @@
 using OpenMetaverse;
 using OpenSim.Framework;
 using OpenSim.Services.Interfaces;
+using PermissionMask = OpenSim.Framework.PermissionMask;
 
 namespace OpenSim.Region.OptionalModules.ServerSideBaking.Tests;
 
