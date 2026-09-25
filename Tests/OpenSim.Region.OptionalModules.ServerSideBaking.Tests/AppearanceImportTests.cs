@@ -166,6 +166,26 @@ public class AppearanceImportPlannerTests
     }
 
     [Fact]
+    public void APrePhysicsBlobIsThePrefixOfTodaysAndTheRestDefaults()
+    {
+        var full = SampleBlob.Split(',').Select(byte.Parse).ToArray();
+        var legacy = AppearancePlanner.LegacyVisualParamCount(Catalog.Lad);
+        Assert.Equal(218, legacy);
+        var send = VisualParamEncoder.SendList(Catalog.Lad);
+        Assert.Equal(80, send[31].Id);    // "Female [0] / Shape Male [1]" at index 31 in the old viewer's table
+        Assert.Equal(10000, send[218].Id); // the first "[NEW]" entry is the first physics parameter
+
+        var plan = AppearancePlanner.Plan(new AvatarSpec { FirstName = "a", LastName = "b", VisualParams = Json("\"" + string.Join(",", full.Take(legacy)) + "\"") }, null, Catalog);
+
+        Assert.True(plan.Ok, string.Join("; ", plan.Errors));
+        Assert.Contains(plan.Warnings, w => w.Contains("pre-physics"));
+        Assert.Equal(send.Count, plan.VisualParams.Length);
+        Assert.Equal(full.Take(legacy), plan.VisualParams.Take(legacy));
+        var hover = send.FindIndex(p => p.Id == 11001);
+        Assert.Equal(VisualParamEncoder.F32ToU8(0f, -2f, 2f), plan.VisualParams[hover]);
+    }
+
+    [Fact]
     public void VisualParamsAreTheViewersEncodingOfTheWornValues()
     {
         var plan = AppearancePlanner.Plan(Spec(new WearableSpec { Type = "shape", Params = new() { ["male"] = 1, ["Height"] = 1.5 } }), null, Catalog);

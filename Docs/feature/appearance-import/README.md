@@ -60,8 +60,10 @@ single avatar object. Comments and trailing commas are allowed.
 
 * **visualParams** — optional: the avatar's stored/transmitted VisualParams blob (`"31,20,69,…"` or a number array),
   exactly as the avatar service keeps it in the `VisualParams` row. It must have one byte per transmitted parameter
-  (253 with the fork's avatar_lad.xml); any other length is rejected, because the bytes could not be matched to
-  parameters. The bytes become the shape, skin, hair and eyes (generated when not listed, instead of library defaults)
+  (253 with the fork's avatar_lad.xml). A 218-value blob from a pre-physics avatar is accepted too: the send list is
+  in id order and positions 218–252 are the later additions (33 physics parameters, AppearanceMessage_Version, Hover),
+  so the old values are an exact prefix and the additions take their defaults. Any other length is rejected, because
+  the bytes could not be matched to parameters. The bytes become the shape, skin, hair and eyes (generated when not listed, instead of library defaults)
   and the parameters of the topmost listed wearable of each other type (clothing and physics are never invented).
   A wearable's own `params` win over the blob, and the stored VisualParams are the blob itself apart from those.
   Byte values are decoded to the middle of their step, so the viewer re-encodes them to the same byte.

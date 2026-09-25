@@ -288,9 +288,21 @@ public static class AppearancePlanner
     /// Read a VisualParams blob: a comma/space/semicolon separated string or a JSON number array of bytes.
     /// Null for an absent value; an error for anything else, or for a length the parameter table does not have.
     /// </summary>
+    /// <summary>
+    /// The length of a pre-physics VisualParams blob: every transmitted parameter below id 10000 (218 with the
+    /// fork's avatar_lad.xml). The send list is in id order and the physics parameters (10000-10032),
+    /// AppearanceMessage_Version (11000) and Hover (11001) were appended after it, so such a blob is a prefix of
+    /// today's, byte for byte.
+    /// </summary>
+    public static int LegacyVisualParamCount(AvatarLad lad) => VisualParamEncoder.SendList(lad).Count(p => p.Id < 10000);
+
     public static byte[] ParseVisualParams(JsonElement? element, AvatarLad lad, out string error)
+        => ParseVisualParams(element, lad, out error, out _);
+
+    public static byte[] ParseVisualParams(JsonElement? element, AvatarLad lad, out string error, out string warning)
     {
         error = null;
+        warning = null;
         if (element is null || element.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) return null;
         var values = new List<int>();
         var e = element.Value;
@@ -314,11 +326,21 @@ public static class AppearancePlanner
 
         if (values.Count == 0) return null;
         if (values.Any(v => v is < 0 or > 255)) { error = "visualParams: every value must be 0..255"; return null; }
-        var expected = VisualParamEncoder.SendList(lad).Count;
-        if (values.Count != expected)
+        var send = VisualParamEncoder.SendList(lad);
+        var legacy = LegacyVisualParamCount(lad);
+        if (values.Count == legacy && legacy < send.Count)
         {
-            error = $"visualParams has {values.Count} values but the parameter table transmits {expected}; "
-                + "the bytes cannot be matched to parameters (a blob from an older viewer or another avatar_lad.xml)";
+            // A pre-physics blob: the parameters it has are today's first ones; the rest take their defaults.
+            var padded = new byte[send.Count];
+            for (var i = 0; i < send.Count; i++)
+                padded[i] = i < legacy ? (byte)values[i] : VisualParamEncoder.F32ToU8(DefaultWeight(send[i]), send[i].Min, send[i].Max);
+            warning = $"visualParams has the {legacy} values of a pre-physics avatar; physics, appearance version and hover take their defaults";
+            return padded;
+        }
+        if (values.Count != send.Count)
+        {
+            error = $"visualParams has {values.Count} values but the parameter table transmits {send.Count} (or {legacy} for a pre-physics avatar); "
+                + "the bytes cannot be matched to parameters";
             return null;
         }
         return values.Select(v => (byte)v).ToArray();
@@ -343,8 +365,9 @@ public static class AppearancePlanner
         catch (FormatException e) { plan.Errors.Add(e.Message); avatarScale = ParamScale.Value; }
 
         // The VisualParams blob, if any, as id → byte.
-        plan.VisualParams = ParseVisualParams(spec.VisualParams, catalog.Lad, out var vpError);
+        plan.VisualParams = ParseVisualParams(spec.VisualParams, catalog.Lad, out var vpError, out var vpWarning);
         if (vpError is not null) plan.Errors.Add(vpError);
+        if (vpWarning is not null) plan.Warnings.Add(vpWarning);
         Dictionary<int, byte> blob = null;
         if (plan.VisualParams is not null)
         {
