@@ -4,6 +4,10 @@ branches:
   - develop
 image: Visual Studio 2022
 install:
+- ps: |
+    Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile "$env:TEMP\dotnet-install.ps1"
+    & "$env:TEMP\dotnet-install.ps1" -Channel 10.0 -InstallDir "$env:ProgramFiles\dotnet"
+- dotnet --list-sdks
 - git submodule update --init --recursive
 - dotnet restore
 build:
