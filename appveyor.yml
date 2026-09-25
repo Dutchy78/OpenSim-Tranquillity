@@ -17,7 +17,8 @@ install:
 build: off
 build_script:
 - dotnet build Tranquillity.sln -c Debug --no-restore
-test: off
+test_script:
+- dotnet test Tests\OpenSim.Region.OptionalModules.ServerSideBaking.Tests --no-build -c Debug
 artifacts:
 - path: Source\OpenSim.Server.RegionServer\bin\Debug\net10.0
   name: NGC-Tranquillity-RegionServer
