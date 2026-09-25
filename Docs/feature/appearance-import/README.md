@@ -46,6 +46,7 @@ single avatar object. Comments and trailing commas are allowed.
   "outfitName": "Load Test Look",        // default "Imported Outfit"
   "paramScale": "slider",                // value (default) | slider (0–100) | byte (0–255)
   "replaceOutfit": true,                 // false keeps existing attachments
+  "visualParams": "31,20,69,0,111,…",    // optional: a whole-body VisualParams blob (253 bytes)
   "wearables": [
     { "type": "shape", "name": "…", "params": { "Height": 62, "33": 62, "Body Thickness": 40 } },
     { "type": "skin", "textures": { "head_bodypaint": "<texture uuid>", "upper_bodypaint": "img/upper.png" } },
@@ -57,6 +58,13 @@ single avatar object. Comments and trailing commas are allowed.
 }
 ```
 
+* **visualParams** — optional: the avatar's stored/transmitted VisualParams blob (`"31,20,69,…"` or a number array),
+  exactly as the avatar service keeps it in the `VisualParams` row. It must have one byte per transmitted parameter
+  (253 with the fork's avatar_lad.xml); any other length is rejected, because the bytes could not be matched to
+  parameters. The bytes become the shape, skin, hair and eyes (generated when not listed, instead of library defaults)
+  and the parameters of the topmost listed wearable of each other type (clothing and physics are never invented).
+  A wearable's own `params` win over the blob, and the stored VisualParams are the blob itself apart from those.
+  Byte values are decoded to the middle of their step, so the viewer re-encodes them to the same byte.
 * **params** — key by avatar_lad.xml id, name or viewer editor label (`PARAMS.md`, or `appearance params <type>`).
   Values outside the range are clamped (with a warning); a parameter that belongs to another wearable type is ignored
   (with a warning). Parameters you leave out take the avatar_lad.xml default.

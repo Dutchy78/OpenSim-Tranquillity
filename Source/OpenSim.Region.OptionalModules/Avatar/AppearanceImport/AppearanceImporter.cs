@@ -358,7 +358,7 @@ public sealed class AppearanceImporter
             foreach (var (_, itemId, assetId, _) in group) aw.Add(itemId, assetId);
             appearance.SetWearable((int)group.Key, aw);
         }
-        appearance.VisualParams = AppearancePlanner.EncodeVisualParams(m_catalog.Lad, wornParams);
+        appearance.VisualParams = AppearancePlanner.EncodeVisualParams(m_catalog.Lad, wornParams, plan);
         appearance.Serial = (previous?.Serial ?? 0) + 1;
 
         if (!replaceAll && previous is not null)

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using OpenMetaverse;
 using OpenSimNGC.Appearance.Baking;
 
@@ -46,6 +47,12 @@ public sealed class AvatarPlan
     public List<string> Errors { get; } = new();
     public List<string> Warnings { get; } = new();
     public bool Ok => Errors.Count == 0;
+
+    /// <summary>The document's VisualParams blob, validated against the parameter table; null when it gave none.</summary>
+    public byte[] VisualParams { get; set; }
+
+    /// <summary>Parameter ids set by a wearable's own <c>params</c> (they win over <see cref="VisualParams"/>).</summary>
+    public HashSet<int> ExplicitParamIds { get; } = new();
 }
 
 /// <summary>
@@ -256,13 +263,65 @@ public static class AppearancePlanner
         double w = scale switch
         {
             ParamScale.Slider => def.Min + value / 100.0 * (def.Max - def.Min),
-            ParamScale.Byte => def.Min + value / 255.0 * (def.Max - def.Min),
+            ParamScale.Byte => def.Min + ByteFraction(value) * (def.Max - def.Min),
             _ => value,
         };
         double lo = Math.Min(def.Min, def.Max), hi = Math.Max(def.Min, def.Max);
         clamped = w < lo - 1e-6 || w > hi + 1e-6 || double.IsNaN(w);
         if (double.IsNaN(w)) w = DefaultWeight(def);
         return (float)Math.Clamp(w, lo, hi);
+    }
+
+    /// <summary>
+    /// A VisualParams byte as a fraction of the range. The viewer encodes with truncation (F32_to_U8), so byte b
+    /// stands for [b/255, (b+1)/255); the middle of that bucket survives the round trip through a wearable file and
+    /// back to a byte, where its lower edge can come back one lower. 0 and 255 stay exactly on the ends.
+    /// </summary>
+    public static double ByteFraction(double b)
+    {
+        if (b <= 0) return b < 0 ? b / 255.0 : 0.0;
+        if (b >= 255) return b / 255.0;
+        return (Math.Floor(b) + 0.5) / 255.0;
+    }
+
+    /// <summary>
+    /// Read a VisualParams blob: a comma/space/semicolon separated string or a JSON number array of bytes.
+    /// Null for an absent value; an error for anything else, or for a length the parameter table does not have.
+    /// </summary>
+    public static byte[] ParseVisualParams(JsonElement? element, AvatarLad lad, out string error)
+    {
+        error = null;
+        if (element is null || element.Value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) return null;
+        var values = new List<int>();
+        var e = element.Value;
+        if (e.ValueKind == JsonValueKind.String)
+        {
+            foreach (var tok in (e.GetString() ?? "").Split(new[] { ',', ' ', ';', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (!int.TryParse(tok, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v)) { error = $"visualParams: '{tok}' is not a number"; return null; }
+                values.Add(v);
+            }
+        }
+        else if (e.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in e.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Number || !item.TryGetInt32(out var v)) { error = "visualParams: every entry must be a whole number"; return null; }
+                values.Add(v);
+            }
+        }
+        else { error = "visualParams must be a string of comma-separated bytes or an array of numbers"; return null; }
+
+        if (values.Count == 0) return null;
+        if (values.Any(v => v is < 0 or > 255)) { error = "visualParams: every value must be 0..255"; return null; }
+        var expected = VisualParamEncoder.SendList(lad).Count;
+        if (values.Count != expected)
+        {
+            error = $"visualParams has {values.Count} values but the parameter table transmits {expected}; "
+                + "the bytes cannot be matched to parameters (a blob from an older viewer or another avatar_lad.xml)";
+            return null;
+        }
+        return values.Select(v => (byte)v).ToArray();
     }
 
     public static AvatarPlan Plan(AvatarSpec spec, ImportDocument document, ParamCatalog catalog)
@@ -283,8 +342,34 @@ public static class AppearancePlanner
         try { avatarScale = ImportDocumentReader.ParseScale(spec.ParamScale) ?? ImportDocumentReader.ParseScale(document?.ParamScale) ?? ParamScale.Value; }
         catch (FormatException e) { plan.Errors.Add(e.Message); avatarScale = ParamScale.Value; }
 
+        // The VisualParams blob, if any, as id → byte.
+        plan.VisualParams = ParseVisualParams(spec.VisualParams, catalog.Lad, out var vpError);
+        if (vpError is not null) plan.Errors.Add(vpError);
+        Dictionary<int, byte> blob = null;
+        if (plan.VisualParams is not null)
+        {
+            var send = VisualParamEncoder.SendList(catalog.Lad);
+            blob = new Dictionary<int, byte>(send.Count);
+            for (var i = 0; i < send.Count; i++) blob[send[i].Id] = plan.VisualParams[i];
+        }
+
+        var wearables = new List<WearableSpec>(spec.Wearables ?? new List<WearableSpec>());
+        if (blob is not null)
+        {
+            // A blob describes a whole body: generate any body part the document does not list.
+            foreach (var bp in BodyParts)
+                if (!wearables.Any(w => w is not null && ParseKind(w.Type) == bp))
+                    wearables.Add(new WearableSpec { Type = WearableKinds.TypeName(bp) });
+        }
+
+        // The blob's values for a type belong to the topmost (last listed) wearable of that type — the one the
+        // viewer took them from.
+        var topmost = new Dictionary<WearableKind, int>();
+        for (var i = 0; i < wearables.Count; i++)
+            if (wearables[i] is not null && ParseKind(wearables[i].Type) is { } k && string.IsNullOrWhiteSpace(wearables[i].AssetId))
+                topmost[k] = i;
+
         var perType = new Dictionary<WearableKind, int>();
-        var wearables = spec.Wearables ?? new List<WearableSpec>();
         for (var i = 0; i < wearables.Count; i++)
         {
             var w = wearables[i];
@@ -300,7 +385,8 @@ public static class AppearancePlanner
             if (count >= MaxPerType) { plan.Warnings.Add($"{where}: more than {MaxPerType} of one type; ignored"); continue; }
             perType[kind.Value] = count + 1;
 
-            var composed = ComposeWearable(w, kind.Value, avatarScale, catalog, where, plan, spec);
+            var fromBlob = blob is not null && topmost.TryGetValue(kind.Value, out var top) && top == i ? blob : null;
+            var composed = ComposeWearable(w, kind.Value, avatarScale, catalog, where, plan, spec, fromBlob);
             if (composed is not null) plan.Wearables.Add(composed);
         }
 
@@ -325,7 +411,7 @@ public static class AppearancePlanner
         return plan;
     }
 
-    private static ComposedWearable ComposeWearable(WearableSpec w, WearableKind kind, ParamScale avatarScale, ParamCatalog catalog, string where, AvatarPlan plan, AvatarSpec spec)
+    private static ComposedWearable ComposeWearable(WearableSpec w, WearableKind kind, ParamScale avatarScale, ParamCatalog catalog, string where, AvatarPlan plan, AvatarSpec spec, IReadOnlyDictionary<int, byte> blob)
     {
         var name = CleanLine(w.Name, $"{spec.FirstName} {spec.LastName} {WearableKinds.TypeName(kind)}".Trim());
         var description = CleanLine(w.Description, "");
@@ -352,7 +438,9 @@ public static class AppearancePlanner
         var type = WearableKinds.TypeName(kind);
         var prms = new SortedDictionary<int, float>();
         foreach (var def in catalog.TweakablesOf(kind))
-            prms[def.Id] = DefaultWeight(def);
+            prms[def.Id] = blob is not null && blob.TryGetValue(def.Id, out var b)
+                ? ToWeight(b, ParamScale.Byte, def, out _)
+                : DefaultWeight(def);
 
         if (w.Params is not null)
         {
@@ -368,6 +456,7 @@ public static class AppearancePlanner
                     continue;
                 }
                 prms[def.Id] = ToWeight(value, scale, def, out var clamped);
+                plan.ExplicitParamIds.Add(def.Id);
                 if (clamped)
                     plan.Warnings.Add($"{where}: parameter '{key}' = {value.ToString(CultureInfo.InvariantCulture)} ({scale}) is outside {def.Min.ToString(CultureInfo.InvariantCulture)}..{def.Max.ToString(CultureInfo.InvariantCulture)}; clamped");
             }
@@ -449,10 +538,13 @@ public static class AppearancePlanner
         return sb.ToString();
     }
 
-    /// <summary>The viewer's terse float form: at most three decimals, no trailing zeros, never "-0".</summary>
+    /// <summary>
+    /// A terse float: at most four decimals (enough to keep every VisualParams byte on its own step), no trailing
+    /// zeros, never "-0".
+    /// </summary>
     public static string Terse(float value)
     {
-        var s = Math.Round(value, 3).ToString("0.###", CultureInfo.InvariantCulture);
+        var s = Math.Round(value, 4).ToString("0.####", CultureInfo.InvariantCulture);
         return s == "-0" ? "0" : s;
     }
 
@@ -462,4 +554,19 @@ public static class AppearancePlanner
     /// </summary>
     public static byte[] EncodeVisualParams(AvatarLad lad, IEnumerable<(WearableKind Kind, IReadOnlyDictionary<int, float> Params)> worn)
         => VisualParamEncoder.Encode(lad, worn, null).Bytes;
+
+    /// <summary>
+    /// The appearance's VisualParams for a plan: with no blob, <see cref="EncodeVisualParams(AvatarLad, IEnumerable{ValueTuple{WearableKind, IReadOnlyDictionary{int, float}}})"/>;
+    /// with one, the document's bytes unchanged except where a wearable's own <c>params</c> set a value.
+    /// </summary>
+    public static byte[] EncodeVisualParams(AvatarLad lad, IEnumerable<(WearableKind Kind, IReadOnlyDictionary<int, float> Params)> worn, AvatarPlan plan)
+    {
+        var encoded = EncodeVisualParams(lad, worn);
+        if (plan?.VisualParams is null || plan.VisualParams.Length != encoded.Length) return encoded;
+        var send = VisualParamEncoder.SendList(lad);
+        var result = (byte[])plan.VisualParams.Clone();
+        for (var i = 0; i < send.Count; i++)
+            if (plan.ExplicitParamIds.Contains(send[i].Id)) result[i] = encoded[i];
+        return result;
+    }
 }

@@ -56,6 +56,15 @@ public sealed class AvatarSpec
     public List<WearableSpec> Wearables { get; set; } = new();
     public List<AttachmentSpec> Attachments { get; set; } = new();
 
+    /// <summary>
+    /// Optional: the avatar's VisualParams blob as a viewer sends it and the avatar service stores it — one byte per
+    /// transmitted parameter (avatar_lad.xml group 0 and 3, id order; 253 with the current table), as a
+    /// comma-separated string ("31,20,69,…") or a number array. Its bytes become the parameters of the shape, skin,
+    /// hair and eyes (generated when the document does not list them) and of the topmost listed wearable of every
+    /// other type. A value in a wearable's own <c>params</c> wins over the blob.
+    /// </summary>
+    public JsonElement? VisualParams { get; set; }
+
     [JsonIgnore]
     public string DisplayName => $"{FirstName} {LastName}";
 }

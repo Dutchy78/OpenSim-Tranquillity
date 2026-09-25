@@ -105,6 +105,66 @@ public class AppearanceImportPlannerTests
         Assert.Throws<FormatException>(() => ImportDocumentReader.Parse("{ nope"));
     }
 
+    /// <summary>A VisualParams blob as the avatar service stores it (253 bytes, the current avatar_lad.xml send list).</summary>
+    internal const string SampleBlob = "31,20,69,0,111,140,25,71,38,0,0,192,43,119,149,140,137,51,25,43,5,37,127,99,25,142,46,71,53,51,66,0,203,255,0,63,0,0,127,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,46,0,0,0,0,0,0,0,0,0,0,0,0,0,76,0,140,127,0,0,117,73,66,85,127,127,0,76,0,100,216,214,204,204,204,51,25,89,76,204,0,107,7,0,160,30,71,132,130,89,0,127,76,127,127,127,112,0,25,53,127,96,84,46,79,122,81,122,63,0,0,0,0,127,127,0,0,0,0,127,0,159,0,0,89,127,51,0,0,63,239,165,147,122,0,5,76,25,68,130,0,214,204,198,0,0,2,30,140,226,255,198,255,255,255,255,255,255,255,255,255,204,0,255,255,255,255,255,255,255,255,255,255,255,0,255,255,255,255,255,0,99,89,255,25,100,255,255,255,255,84,0,0,0,51,0,255,255,255,0,0,25,160,25,160,51,0,25,23,51,0,0,25,0,25,23,51,0,0,25,0,25,23,51,0,25,23,51,0,25,23,51,1,127";
+
+    private static System.Text.Json.JsonElement Json(string s) => System.Text.Json.JsonDocument.Parse(s).RootElement.Clone();
+
+    [Fact]
+    public void AVisualParamsBlobBecomesTheBodyPartsAndRoundTrips()
+    {
+        var spec = new AvatarSpec { FirstName = "a", LastName = "b", VisualParams = Json("\"" + SampleBlob + "\"") };
+        var plan = AppearancePlanner.Plan(spec, null, Catalog);
+
+        Assert.True(plan.Ok, string.Join("; ", plan.Errors));
+        Assert.Empty(plan.MissingBodyParts);   // generated from the blob, not library defaults
+        Assert.Equal(new[] { WearableKind.Shape, WearableKind.Skin, WearableKind.Hair, WearableKind.Eyes }, plan.Wearables.Select(w => w.Kind));
+
+        // every byte a generated wearable carries survives: wearable text → parser → encoder gives the blob back
+        var blob = SampleBlob.Split(',').Select(byte.Parse).ToArray();
+        var reparsed = plan.Wearables.Select(w => (w.Kind, (IReadOnlyDictionary<int, float>)WearableParser.Parse(
+            AppearancePlanner.ToLLWearable(w, new Dictionary<TextureSlot, UUID>(), UUID.Zero, UUID.Zero)).Params)).ToList();
+        var send = VisualParamEncoder.SendList(Catalog.Lad);
+        var encoded = AppearancePlanner.EncodeVisualParams(Catalog.Lad, reparsed);
+        var worn = new HashSet<string> { "shape", "skin", "hair", "eyes" };
+        for (var i = 0; i < send.Count; i++)
+            if (send[i].Group == 0 && send[i].Wearable is { } w && worn.Contains(w))
+                Assert.True(blob[i] == encoded[i], $"param {send[i].Id} {send[i].Name}: blob {blob[i]}, round trip {encoded[i]}");
+
+        // the stored VisualParams are the blob itself
+        Assert.Equal(blob, AppearancePlanner.EncodeVisualParams(Catalog.Lad, plan.Wearables.Select(w => (w.Kind, w.Params)), plan));
+    }
+
+    [Fact]
+    public void ExplicitParamsWinOverTheBlobAndClothingTakesItsTopmostValues()
+    {
+        var spec = new AvatarSpec
+        {
+            FirstName = "a", LastName = "b", VisualParams = Json("[" + SampleBlob + "]"),
+            Wearables = new() { new WearableSpec { Type = "shape", Params = new() { ["Height"] = 2 } }, new WearableSpec { Type = "shirt" }, new WearableSpec { Type = "shirt" } },
+        };
+        var plan = AppearancePlanner.Plan(spec, null, Catalog);
+        Assert.True(plan.Ok, string.Join("; ", plan.Errors));
+
+        var send = VisualParamEncoder.SendList(Catalog.Lad);
+        var blob = SampleBlob.Split(',').Select(byte.Parse).ToArray();
+        var vp = AppearancePlanner.EncodeVisualParams(Catalog.Lad, plan.Wearables.Select(w => (w.Kind, w.Params)), plan);
+        Assert.Equal(255, vp[send.FindIndex(p => p.Id == 33)]);            // Height set explicitly to its max
+        Assert.Equal(blob[send.FindIndex(p => p.Id == 1)], vp[send.FindIndex(p => p.Id == 1)]);
+
+        var shirts = plan.Wearables.Where(w => w.Kind == WearableKind.Shirt).ToList();
+        var sleeve = send.FindIndex(p => p.Id == 800);
+        Assert.Equal(AppearancePlanner.DefaultWeight(Catalog.Lad.Params[800]), shirts[0].Params[800]);   // under: default
+        Assert.Equal(blob[sleeve], VisualParamEncoder.F32ToU8(shirts[1].Params[800], 0, 1));            // top: the blob
+    }
+
+    [Fact]
+    public void ABlobOfTheWrongLengthIsRejected()
+    {
+        var plan = AppearancePlanner.Plan(new AvatarSpec { FirstName = "a", LastName = "b", VisualParams = Json("\"1,2,3\"") }, null, Catalog);
+        Assert.Contains(plan.Errors, e => e.Contains("has 3 values"));
+    }
+
     [Fact]
     public void VisualParamsAreTheViewersEncodingOfTheWornValues()
     {
